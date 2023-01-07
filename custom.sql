@@ -1,0 +1,1 @@
+alter table prices add column id integer primary key generated always as identity;

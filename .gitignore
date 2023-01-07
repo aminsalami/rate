@@ -503,4 +503,4 @@ tags
 
 # End of https://www.toptal.com/developers/gitignore/api/python,django,pycharm,visualstudiocode,git,vim,jetbrains
 *.txt
-statisticfiles/
+staticfiles/
