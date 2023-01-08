@@ -39,16 +39,16 @@ class RatesAPI(GenericAPIView):
         """
         q = """
             WITH cte as (
-                SELECT 1 as id, count(price) as c, day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
+                SELECT 1 as id, count(price) as c, day, CASE WHEN count(price) >= 3 THEN round(avg(price)) ELSE null END as average_price
                 FROM prices    
                 WHERE orig_code = %s and dest_code = %s
                 GROUP BY day
-                ORDER BY day 
             )
             SELECT 1 as id, c, generated_day, average_price
             FROM cte RIGHT OUTER JOIN (
                 select generated_day::date from generate_series(%s::date, %s::date, '1 day'::interval) as generated_day
-            ) as s ON cte.day = s.generated_day;
+            ) as s ON cte.day = s.generated_day
+            ORDER BY generated_day
         """
         result = Price.objects.raw(
             q,
@@ -141,7 +141,7 @@ class RatesAPI(GenericAPIView):
             select code from ports as p INNER JOIN cte2 ON p.parent_slug = cte2.slug
         ),
         result as (
-            SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
+            SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN round(avg(price))::integer ELSE null END as average_price
             FROM prices
             JOIN origin_ports ON prices.orig_code = origin_ports.code
             JOIN destination_ports ON prices.dest_code = destination_ports.code
@@ -155,5 +155,6 @@ class RatesAPI(GenericAPIView):
         """
         return Price.objects.raw(
             q,
-            params={"origin_slug": p["origin"], "dest_slug": p["destination"], "from": p["date_from"], "to": p["date_to"]}
+            params={"origin_slug": p["origin"], "dest_slug": p["destination"], "from": p["date_from"],
+                    "to": p["date_to"]}
         )
