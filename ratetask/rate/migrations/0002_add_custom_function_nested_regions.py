@@ -1,6 +1,6 @@
 from django.db import migrations
 
-from rate.custom_sqls import raw__ports_in_region
+from rate.sql_functions import raw__ports_in_region
 
 
 class Migration(migrations.Migration):
