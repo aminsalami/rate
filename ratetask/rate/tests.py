@@ -80,7 +80,10 @@ class TestRatesAveragePrice(APITestCase):
 
     def test_port_not_found(self):
         resp = self.api.get(path="/v1/rates/", data=self.sample_qp)
-        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.status_code, 200)  # It should be 404, nevertheless, we just send a null average
+        self.assertEqual(len(resp.data["results"]), 3)
+        for d in resp.data["results"]:
+            self.assertEqual(d.get("average_price"), None)
 
     def test_port2port_prices(self):
         """test if average price is valid when origin is a port & destination is also a port"""
@@ -94,21 +97,22 @@ class TestRatesAveragePrice(APITestCase):
         # Expected exactly 2 price_average, because of the (date_from, date_to)
         self.assertEqual(2, len(resp.data.get("results")))
 
+        # Assert the first day is correct. postgres avg()::integer automatically rounds the number
         q = Price.objects.filter(orig_code=d["origin"], dest_code=d["destination"], day=d["date_from"]) \
             .values_list("price", flat=True)
-        expected = int(sum(q) / len(q))
-        if len(q) >= 3:
-            self.assertEqual(expected, resp.data["results"][0]["average_price"])
+        if len(q) < 3:
+            self.assertIsNone(resp.data["results"][0]["average_price"])
         else:
-            self.assertIsNone(expected, resp.data["results"][0]["average_price"])
-
+            expected = round(sum(q) / len(q))
+            self.assertEqual(expected, resp.data["results"][0]["average_price"])
+        # Assert the last day is correct. postgres avg()::integer automatically rounds the number
         q2 = Price.objects.filter(orig_code=d["origin"], dest_code=d["destination"], day=d["date_to"]) \
             .values_list("price", flat=True)
-        expected = int(sum(q2) / len(q2))
-        if len(q2) >= 3:
-            self.assertEqual(expected, resp.data["results"][0]["average_price"])
+        if len(q2) < 3:
+            self.assertIsNone(resp.data["results"][-1]["average_price"])
         else:
-            self.assertIsNone(expected, resp.data["results"][0]["average_price"])
+            expected = round(sum(q2) / len(q2))
+            self.assertEqual(expected, resp.data["results"][-1]["average_price"])
 
     def test_port2port_when_some_days_have_no_prices(self):
         """
