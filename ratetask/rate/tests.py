@@ -75,10 +75,11 @@ class TestRatesAveragePrice(APITestCase):
 
     def test_port_not_found(self):
         resp = self.api.get(path="/v1/rates/", data=self.sample_qp)
-        self.assertEqual(resp.status_code, 200)  # It should be 404, nevertheless, we just send a null average
-        self.assertEqual(len(resp.data["results"]), 3)
-        for d in resp.data["results"]:
-            self.assertEqual(d.get("average_price"), None)
+        self.assertEqual(resp.status_code, 404)
+
+    def test_region_not_found(self):
+        resp = self.api.get(path="/v1/rates/", data=self.sample_qp)
+        self.assertEqual(resp.status_code, 404)
 
     def test_port2port_prices(self):
         """test if average price is valid when origin is a port & destination is also a port"""

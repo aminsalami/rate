@@ -1,28 +1,34 @@
+from rest_framework.exceptions import NotFound
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from rate.models import Price
+from rate.models import Price, Region, Port
 from rate.serializers import RatesListSerializer, RatesListValidator
 
 
 class RatesAPI(GenericAPIView):
     CODE_LEN = 5
     serializer_class = RatesListSerializer
-    queryset = Price.objects.first()
+    queryset = Price.objects.none()
 
     def get(self, request, *args, **kwargs):
         # validate the query params using the serializer
         params = self.validate_qparams(request.query_params)
 
-        # NOTE: The task requirements does not specify how exactly a CODE is distinguished with slug.
-        # Nevertheless, we assumed that slug is always more than 5 chars.
+        # Note: we assumed that slug is always more than 5 chars.
         if len(params["origin"]) > self.CODE_LEN and len(params["destination"]) > self.CODE_LEN:
+            self.region_exists_or_404(params["origin"], params["destination"])
             query = self.region2region(params)
         elif len(params["origin"]) > self.CODE_LEN:
+            self.region_exists_or_404(params["origin"])
+            self.port_exists_or_404(params["destination"])
             query = self.region2port(params)
         elif len(params["destination"]) > self.CODE_LEN:
+            self.region_exists_or_404(params["destination"])
+            self.port_exists_or_404(params["origin"])
             query = self.port2region(params)
         else:
+            self.port_exists_or_404(params["origin"], params["destination"])
             query = self.port2port(params)
 
         data = self.serializer_class(query, many=True).data
@@ -32,6 +38,14 @@ class RatesAPI(GenericAPIView):
         v = RatesListValidator(data=qparams)
         v.is_valid(raise_exception=True)
         return v.validated_data
+
+    def region_exists_or_404(self, *args: str):
+        if Region.objects.filter(slug__in=args).count() != len(args):
+            raise NotFound(detail={"message": "region not found."})
+
+    def port_exists_or_404(self, *args: str):
+        if Port.objects.filter(code__in=args).count() != len(args):
+            raise NotFound(detail={"message": "port not found."})
 
     def port2port(self, params: dict):
         """
@@ -61,18 +75,10 @@ class RatesAPI(GenericAPIView):
         return a django query representing the average prices from `origin port` to all ports in `destination` region
         """
         q = """
-        WITH RECURSIVE cte AS (
-            select slug, name, parent_slug from regions where slug = %(slug)s
-            UNION
-            select r.slug, r.name, r.parent_slug from regions as r INNER JOIN cte ON r.parent_slug = cte.slug
-        ),
-        destination_ports as (
-            select code from ports as p INNER JOIN cte ON p.parent_slug = cte.slug
-        ),
-        result as (
+        With result as (
             SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
             FROM prices
-            JOIN destination_ports ON dest_code = destination_ports.code
+            JOIN ports_in_region(%(slug)s) as all_ports ON dest_code = all_ports.code
             WHERE orig_code = %(origin)s
             GROUP BY day
             ORDER BY day
@@ -80,7 +86,7 @@ class RatesAPI(GenericAPIView):
         select 1 as id, c, average_price, generated_day FROM result
         RIGHT OUTER JOIN (
             select generated_day::date from generate_series(%(from)s::date, %(to)s::date, '1 day'::interval) as generated_day
-        ) as s ON generated_day = day        
+        ) as s ON generated_day = day
         """
         return Price.objects.raw(
             q,
@@ -94,18 +100,10 @@ class RatesAPI(GenericAPIView):
             - destination parameter is a `port code`
         """
         q = """
-        WITH RECURSIVE cte AS (
-            select slug, name, parent_slug from regions where slug = %(slug)s
-            UNION
-            select r.slug, r.name, r.parent_slug from regions as r INNER JOIN cte ON r.parent_slug = cte.slug
-        ),
-        origin_ports as (
-            select code from ports as p INNER JOIN cte ON p.parent_slug = cte.slug
-        ),
-        result as (
+        WITH result as (
             SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
             FROM prices
-            JOIN origin_ports ON orig_code = origin_ports.code
+            JOIN ports_in_region(%(slug)s) as all_ports ON orig_code = all_ports.code
             WHERE dest_code = %(dest)s
             GROUP BY day
             ORDER BY day
@@ -124,27 +122,11 @@ class RatesAPI(GenericAPIView):
         """
         """
         q = """
-        WITH RECURSIVE cte1 AS (
-            select slug, name, parent_slug from regions where slug = %(origin_slug)s
-            UNION
-            select r.slug, r.name, r.parent_slug from regions as r INNER JOIN cte1 ON r.parent_slug = cte1.slug
-        ),
-        origin_ports as (
-            select code from ports as p INNER JOIN cte1 ON p.parent_slug = cte1.slug
-        ),
-        cte2 AS (
-            select slug, name, parent_slug from regions where slug = %(dest_slug)s
-            UNION
-            select r.slug, r.name, r.parent_slug from regions as r INNER JOIN cte2 ON r.parent_slug = cte2.slug
-        ),
-        destination_ports as (
-            select code from ports as p INNER JOIN cte2 ON p.parent_slug = cte2.slug
-        ),
-        result as (
+        WITH result as (
             SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN round(avg(price))::integer ELSE null END as average_price
             FROM prices
-            JOIN origin_ports ON prices.orig_code = origin_ports.code
-            JOIN destination_ports ON prices.dest_code = destination_ports.code
+            JOIN ports_in_region(%(origin_slug)s) as origin_ports ON prices.orig_code = origin_ports.code
+            JOIN ports_in_region(%(dest_slug)s) as destination_ports ON prices.dest_code = destination_ports.code
             GROUP BY day
             ORDER BY day
         )
