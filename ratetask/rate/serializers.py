@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 
 
 class RatesListSerializer(serializers.Serializer):
@@ -16,5 +17,13 @@ class RatesListValidator(serializers.Serializer):
     origin = serializers.CharField(min_length=5, required=True)
     destination = serializers.CharField(min_length=5, required=True)
 
-    # TODO: validate date_from is always behind date_to
-    # TODO: validate the from/to range is not more than 2 months
+    def validate(self, params):
+        """non-specific field validation"""
+        if params["date_from"] > params["date_to"]:
+            raise ValidationError(detail="`date_from` cannot be before `date_to`")
+
+        # client cannot query more than 60 days of data
+        if (params["date_to"] - params["date_from"]).days > 60:
+            raise ValidationError(detail="The allowed interval is 60 days")
+
+        return params
