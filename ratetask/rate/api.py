@@ -14,6 +14,8 @@ class RatesAPI(GenericAPIView):
         # validate the query params using the serializer
         params = self.validate_qparams(request.query_params)
 
+        # NOTE: The task requirements does not specify how exactly a CODE is distinguished with slug.
+        # Nevertheless, we assumed that slug is always more than 5 chars.
         if len(params["origin"]) > self.CODE_LEN and len(params["destination"]) > self.CODE_LEN:
             query = self.region2region(params)
         elif len(params["origin"]) > self.CODE_LEN:

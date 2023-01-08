@@ -30,3 +30,6 @@ class Price(models.Model):
 
     class Meta:
         db_table = 'prices'
+
+    def __str__(self):
+        return self.orig_code_id + "->" + self.dest_code_id + " -- " + str(self.day)

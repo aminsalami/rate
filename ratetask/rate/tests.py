@@ -1,4 +1,5 @@
 import random
+from datetime import date, timedelta
 
 from django.test import TestCase
 from rest_framework.exceptions import ValidationError
@@ -24,13 +25,6 @@ class TestRatesQueryParams(TestCase):
             qp.pop(key)
             with self.assertRaises(ValidationError):
                 rates_api.validate_qparams(qp)
-
-    # def test_validate_date_format(self):
-    #     """the v1/rates/ API only accept date as `YYYY-MM-DD`"""
-    #     ratesAPI = RatesAPI()
-    #     qp = self.sample_qp.copy()
-    #     qp.update({"date_from": "2010-1-1"})
-    #     self.assertRaises(ratesAPI.validate_rates_qparams(qp))
 
     def test_origin_or_dest_len(self):
         """test the origin & destination codes are at least 5 characters"""
@@ -58,22 +52,23 @@ class TestRatesAveragePrice(APITestCase):
 
     def setUp(self) -> None:
         # ----------- Region-1 ---------------
-        r1 = Region.objects.create(slug="region-1", name="region #1", parent=None)
-        r11 = Region.objects.create(slug="region-1-1", name="region #1-1", parent=r1)
-        self.p_10001 = Port.objects.create(code="10001", name="port-10001", parent=r1)
-        p_11001 = Port.objects.create(code="11001", name="port-11001", parent=r11)
-        p_11002 = Port.objects.create(code="11002", name="port-11002", parent=r11)
+        self.r1 = Region.objects.create(slug="region-1", name="region #1", parent=None)
+        self.r11 = Region.objects.create(slug="region-1-1", name="region #1-1", parent=self.r1)
+        self.p_10001 = Port.objects.create(code="10001", name="port-10001", parent=self.r1)
+        self.p_11001 = Port.objects.create(code="11001", name="port-11001", parent=self.r11)
+        self.p_11002 = Port.objects.create(code="11002", name="port-11002", parent=self.r11)
+        self.region1_ports = [self.p_10001, self.p_11001, self.p_11002]
+        # ----------- Region-2 ---------------
+        self.r2 = Region.objects.create(slug="region-2", name="region #2", parent=None)
+        self.p_20001 = Port.objects.create(code="20001", name="port-20001", parent=self.r2)
+        self.p_20002 = Port.objects.create(code="20002", name="port-20002", parent=self.r2)
+        self.region2_ports = [self.p_20001, self.p_20002]
 
-        # ----------- Region-2 -------p_11001--------
-        r2 = Region.objects.create(slug="region-2", name="region #2", parent=None)
-        self.p_20001 = Port.objects.create(code="20001", name="port-20001", parent=r2)
-        self.p_20002 = Port.objects.create(code="20002", name="port-20002", parent=r2)
-
-        # Generate random prices for random ports (from region-1 >> to region-2)
-        for i in range(100):
+        # Generate random prices for random ports (from region-1 >> to region-2) and vice versa
+        for i in range(200):
             Price.objects.create(
-                orig_code=random.choice([self.p_10001, p_11001, p_11002]),
-                dest_code=random.choice([self.p_20001, self.p_20002]),
+                orig_code=random.choice(self.region1_ports + self.region2_ports),
+                dest_code=random.choice(self.region1_ports + self.region2_ports),
                 day=random.choice(["2023-01-01", "2023-01-02", "2023-01-03", "2023-01-04", "2023-01-05", "2023-01-06"]),
                 price=i
             )
@@ -137,16 +132,86 @@ class TestRatesAveragePrice(APITestCase):
         """
         Test if all ports which belongs to `destination region and its children` are included in the avg calculation
         """
+        d = {
+            "date_from": "2023-01-01", "date_to": "2023-01-06",
+            "origin": self.p_20001.code, "destination": self.r1.slug
+        }
+        resp = self.api.get(path="/v1/rates/", data=d)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(6, len(resp.data["results"]))
+        self.assertEqual(resp.data["results"][0]["day"], "2023-01-01")
+
+        # ports which are in region-1: two of them are children
+        q = Price.objects.filter(
+            orig_code=d["origin"], dest_code__in=self.region1_ports, day="2023-01-01"
+        ).values_list("price", flat=True)
+        if len(q) < 3:
+            self.assertIsNone(resp.data["results"][0]["average_price"])
+        else:
+            expected = round(sum(q) / len(q))
+            self.assertEqual(resp.data["results"][0]["average_price"], expected)
+
+    def test_region2port(self):
+        """
+        Test if all ports belongs to `region-1` are included in the avg calculation
+        """
+        d = {
+            "date_from": "2023-01-01", "date_to": "2023-01-05",
+            "origin": self.r1.slug, "destination": self.p_20002.code
+        }
+        resp = self.api.get(path="/v1/rates/", data=d)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(5, len(resp.data["results"]))
+
+        # get prices for ports belong to region-1
+        q = Price.objects.filter(
+            orig_code__in=self.region1_ports, dest_code=d["destination"], day="2023-01-05"
+        ).values_list("price", flat=True)
+        if len(q) < 3:
+            self.assertIsNone(resp.data["results"][-1]["average_price"])
+        else:
+            expected = round(sum(q) / len(q))
+            self.assertEqual(resp.data["results"][-1]["average_price"], expected)
+
+        # Add a new parent to r1, test with depth=3
+        r0 = Region.objects.create(slug="region-0", name="region #0", parent=None)
+        self.r1.parent = r0
+        self.r1.save()
+        Price.objects.create(orig_code=self.p_11002, dest_code=self.p_20002, day="2023-01-05", price=6000)
+        # Test again
+        resp = self.api.get(path="/v1/rates/", data=dict(d, **{"origin": r0.slug}))
+        self.assertEqual(resp.status_code, 200)
+        q = q.all()
+        if len(q) < 3:
+            self.assertIsNone(resp.data["results"][-1]["average_price"])
+        else:
+            expected = round(sum(q) / len(q))
+            self.assertEqual(resp.data["results"][-1]["average_price"], expected)
 
     def test_region2region(self):
-        pass
-
-    def test_average_for_root_region_is_equal_to_all_children(self):
         """
-        The average price for a region should be exactly the same as the average price for all of its children.
-        Meaning that for `region-1 >> p_20002`, the average price should be equal to `p_10001 + p_11001 + p_11002 > p_20002`
+        Test if the avg value is calculated correctly between two regions with children.
+        origin region is `region-2` and destination region is `region-1`
         """
-        pass
+        d = {
+            "date_from": "2023-01-01", "date_to": "2023-01-05",
+            "origin": self.r2.slug, "destination": self.r1.slug
+        }
+        resp = self.api.get(path="/v1/rates/", data=d)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(5, len(resp.data["results"]))
+        # validate
+        region1_ports = [self.p_10001, self.p_11001, self.p_11002]
+        region2_ports = [self.p_20001, self.p_20002]
 
-    def test_price_is_null(self):
-        pass
+        for idx, day in enumerate([date(2023, 1, 1) + timedelta(days=i) for i in range(5)]):
+            q = Price.objects.filter(
+                orig_code__in=region2_ports,
+                dest_code__in=region1_ports,
+                day=day
+            ).values_list("price", flat=True)
+            if len(q) < 3:
+                self.assertIsNone(resp.data["results"][idx]["average_price"])
+            else:
+                expected = round(sum(q) / len(q))
+                self.assertEqual(resp.data["results"][idx]["average_price"], expected)
