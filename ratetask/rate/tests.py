@@ -119,10 +119,24 @@ class TestRatesAveragePrice(APITestCase):
         We want to make sure that from 2023-01-01 to 2023-01-09 there are exactly 9 day slots that
         some of them are json_null.
         """
-        pass
+        Price.objects.filter(day="2023-01-01", orig_code=self.p_10001).delete()
+        Price.objects.filter(day="2023-01-06", orig_code=self.p_20001).delete()
+        d = {
+            "date_from": "2023-01-01", "date_to": "2023-01-06",
+            "origin": self.p_10001.code, "destination": self.p_20001.code
+        }
+        resp = self.api.get(path="/v1/rates/", data=d)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], "application/json")
+        self.assertEqual(6, len(resp.data["results"]))
+        # We have deleted all the prices where orig_code is 10001 on the first day
+        self.assertIsNone(resp.data["results"][0]["average_price"])
+        self.assertIsNone(resp.data["results"][-1]["average_price"])
 
     def test_port2region(self):
-        pass
+        """
+        Test if all ports which belongs to `destination region and its children` are included in the avg calculation
+        """
 
     def test_region2region(self):
         pass
