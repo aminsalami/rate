@@ -4,14 +4,8 @@ services:
   pg:
     build:
       dockerfile: pg.Dockerfile
-
     ports:
       - "5433:5432"
-    #    environment:
-    #      - POSTGRES_USER=$POSTGRES_USER        # default: xeneta
-    #      - POSTGRES_PASSWORD=$POSTGRES_PASS    # default: XenetaSecurePass
-    #      - POSTGRES_DB=$POSTGRES_DB            # default: xeneta
-
     env_file:
       - ./env.env
     volumes:
