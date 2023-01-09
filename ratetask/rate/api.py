@@ -53,12 +53,12 @@ class RatesAPI(GenericAPIView):
         """
         q = """
             WITH cte as (
-                SELECT 1 as id, count(price) as c, day, CASE WHEN count(price) >= 3 THEN round(avg(price)) ELSE null END as average_price
+                SELECT 1 as id, day, CASE WHEN count(price) >= 3 THEN round(avg(price)) ELSE null END as average_price
                 FROM prices    
                 WHERE orig_code = %s and dest_code = %s
                 GROUP BY day
             )
-            SELECT 1 as id, c, generated_day, average_price
+            SELECT 1 as id, generated_day, average_price
             FROM cte RIGHT OUTER JOIN (
                 select generated_day::date from generate_series(%s::date, %s::date, '1 day'::interval) as generated_day
             ) as s ON cte.day = s.generated_day
@@ -76,14 +76,14 @@ class RatesAPI(GenericAPIView):
         """
         q = """
         With result as (
-            SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
+            SELECT day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
             FROM prices
             JOIN ports_in_region(%(slug)s) as all_ports ON dest_code = all_ports.code
             WHERE orig_code = %(origin)s
             GROUP BY day
             ORDER BY day
         )
-        select 1 as id, c, average_price, generated_day FROM result
+        select 1 as id, average_price, generated_day FROM result
         RIGHT OUTER JOIN (
             select generated_day::date from generate_series(%(from)s::date, %(to)s::date, '1 day'::interval) as generated_day
         ) as s ON generated_day = day
@@ -101,14 +101,14 @@ class RatesAPI(GenericAPIView):
         """
         q = """
         WITH result as (
-            SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
+            SELECT day, CASE WHEN count(price) >= 3 THEN avg(price)::integer ELSE null END as average_price
             FROM prices
             JOIN ports_in_region(%(slug)s) as all_ports ON orig_code = all_ports.code
             WHERE dest_code = %(dest)s
             GROUP BY day
             ORDER BY day
         )
-        select 1 as id, c, average_price, generated_day FROM result
+        select 1 as id, average_price, generated_day FROM result
         RIGHT OUTER JOIN (
             select generated_day::date from generate_series(%(from)s::date, %(to)s::date, '1 day'::interval) as generated_day
         ) as s ON generated_day = day        
@@ -123,14 +123,14 @@ class RatesAPI(GenericAPIView):
         """
         q = """
         WITH result as (
-            SELECT count(price) as c, day, CASE WHEN count(price) >= 3 THEN round(avg(price))::integer ELSE null END as average_price
+            SELECT day, CASE WHEN count(price) >= 3 THEN round(avg(price))::integer ELSE null END as average_price
             FROM prices
             JOIN ports_in_region(%(origin_slug)s) as origin_ports ON prices.orig_code = origin_ports.code
             JOIN ports_in_region(%(dest_slug)s) as destination_ports ON prices.dest_code = destination_ports.code
             GROUP BY day
             ORDER BY day
         )
-        select 1 as id, c, average_price, generated_day FROM result
+        select 1 as id, average_price, generated_day FROM result
         RIGHT OUTER JOIN (
             select generated_day::date from generate_series(%(from)s::date, %(to)s::date, '1 day'::interval) as generated_day
         ) as s ON generated_day = day;

@@ -5,7 +5,6 @@ from rest_framework.exceptions import ValidationError
 class RatesListSerializer(serializers.Serializer):
     day = serializers.DateField(source="generated_day")
     average_price = serializers.IntegerField(allow_null=True)
-    c = serializers.IntegerField()
 
     class Meta:
         read_only = True
