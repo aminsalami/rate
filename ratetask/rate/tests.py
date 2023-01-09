@@ -150,7 +150,7 @@ class TestRatesAveragePrice(APITestCase):
             self.assertIsNone(resp.data["results"][0]["average_price"])
         else:
             expected = round(sum(q) / len(q))
-            self.assertEqual(resp.data["results"][0]["average_price"], expected)
+            self.assertFalse(abs(resp.data["results"][0]["average_price"] - expected) > 1, f"expected: {expected}")
 
     def test_region2port(self):
         """
@@ -172,7 +172,10 @@ class TestRatesAveragePrice(APITestCase):
             self.assertIsNone(resp.data["results"][-1]["average_price"])
         else:
             expected = round(sum(q) / len(q))
-            self.assertEqual(resp.data["results"][-1]["average_price"], expected)
+            # The round function in Postgres and Python behaves differently.
+            # For some specific values they round up while the other rounds down. So we cannot use assertEqual
+            # but the abs difference is always less than 1.
+            self.assertFalse(abs(resp.data["results"][-1]["average_price"] - expected) > 1, f"expected: {expected}")
 
         # Add a new parent to r1, test with depth=3
         r0 = Region.objects.create(slug="region-0", name="region #0", parent=None)
@@ -187,7 +190,7 @@ class TestRatesAveragePrice(APITestCase):
             self.assertIsNone(resp.data["results"][-1]["average_price"])
         else:
             expected = round(sum(q) / len(q))
-            self.assertEqual(resp.data["results"][-1]["average_price"], expected)
+            self.assertFalse(abs(resp.data["results"][-1]["average_price"] - expected) > 1, f"expected: {expected}")
 
     def test_region2region(self):
         """
